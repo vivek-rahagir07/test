@@ -5563,9 +5563,83 @@
             if (galleryBtn) {
                 galleryBtn.addEventListener('click', (e) => {
                     e.preventDefault();
+                    if (!window.currentUserId || (window.auth.currentUser && window.auth.currentUser.isAnonymous)) {
+                        showAlert('Login Required', 'Please log in to upload a photo.', 'warning');
+                        return;
+                    }
                     if (galleryInput) galleryInput.click();
                 });
             }
+
+            if (cameraBtn) {
+                cameraBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    if (!window.currentUserId || (window.auth.currentUser && window.auth.currentUser.isAnonymous)) {
+                        showAlert('Login Required', 'Please log in to upload a photo.', 'warning');
+                        return;
+                    }
+                    if (cameraInput) cameraInput.click();
+                });
+            }
+
+            const handlePhotoUpload = async (file) => {
+                if (!file) return;
+                if (!window.fs || !window.storage || !window.db || !window.currentUserId) {
+                    showAlert('Error', 'Not logged in or Firebase is not ready.', 'error');
+                    return;
+                }
+
+                showAlert('Uploading...', 'Your photo is being uploaded.', 'info');
+                try {
+                    const userId = window.currentUserId;
+                    const appId = window.appId;
+                    const photoRef = window.fs.storage_ref(window.storage, `artifacts/${appId}/user_photos/${userId}/profile.jpg`);
+                    
+                    const snapshot = await window.fs.uploadBytes(photoRef, file);
+                    const photoUrl = await window.fs.getDownloadURL(snapshot.ref);
+
+                    // Update Firestore
+                    const userDocRef = window.fs.doc(window.db, 'artifacts', appId, 'users', userId);
+                    await window.fs.updateDoc(userDocRef, { photoUrl: photoUrl });
+
+                    // Update local state
+                    if (window.currentUserData) window.currentUserData.photoUrl = photoUrl;
+                    if (navUserPhotoEl) navUserPhotoEl.src = photoUrl;
+
+                    // Update photo previews in registration forms (if they are open)
+                    const previews = document.querySelectorAll('.photo-preview');
+                    previews.forEach(preview => {
+                        if (preview.id.includes('driver') || preview.id.includes('traveler') || preview.id.includes('emergency')) {
+                            preview.src = photoUrl;
+                            preview.classList.add('active');
+                            const icon = preview.previousElementSibling;
+                            if (icon && icon.classList.contains('upload-icon')) {
+                                icon.classList.add('hidden');
+                            }
+                        }
+                    });
+
+                    showAlert('Success!', 'Your profile photo has been updated.', 'success');
+
+                } catch (error) {
+                    console.error("Error uploading photo:", error);
+                    showAlert('Upload Failed', `Could not update photo: ${error.message}`, 'error');
+                }
+            };
+
+            if (galleryInput) {
+                galleryInput.addEventListener('change', (e) => {
+                    handlePhotoUpload(e.target.files[0]);
+                });
+            }
+
+            if (cameraInput) {
+                cameraInput.addEventListener('change', (e) => {
+                    handlePhotoUpload(e.target.files[0]);
+                });
+            }
+            // --- END NEW: Photo Upload Logic ---
+
 
             // --- NEW: Populate My Rides Modal ---
             window.populateRides = async () => {
@@ -6494,6 +6568,23 @@
                 const oldList = document.getElementById('ride-requests-list');
                 const newList = oldList.cloneNode(false); // Clone only the element, not children
                 oldList.parentNode.replaceChild(newList, oldList);
+                
+                // --- NEW: Delegated click listener for "Place Bid" ---
+                newList.addEventListener('click', (e) => {
+                    if (e.target.classList.contains('bid-btn')) {
+                        const requestId = e.target.dataset.id;
+                        const bidModal = document.getElementById('bid-modal');
+                        const bidForm = document.getElementById('place-bid-form');
+                        
+                        if (bidModal && bidForm) {
+                            // Store the requestId on the form itself
+                            bidForm.dataset.requestId = requestId;
+                            bidForm.reset(); // Clear old amounts
+                            document.getElementById('place-bid-error').style.display = 'none';
+                            bidModal.classList.add('active');
+                        }
+                    }
+                });
                 // --- END NEW ---
 
                 // Save the unsubscribe function returned by onSnapshot
@@ -6541,6 +6632,8 @@
                     // --- END NEW ---
 
                     // Add listeners to new accept buttons
+                    // --- REMOVED: Old, incorrect listener for .accept-btn ---
+                    /*
                     requestsListEl.querySelectorAll('.accept-btn').forEach(btn => {
                         btn.addEventListener('click', async (e) => {
                             const requestId = e.target.dataset.id;
@@ -6564,6 +6657,8 @@
                             }
                         });
                     });
+                    */
+                    // --- END REMOVED ---
 
                 }, (error) => {
                     console.error("Error listening to ride requests:", error);
