@@ -40,7 +40,8 @@
             query,
             updateDoc,
             onSnapshot, // <-- NEW: Import onSnapshot
-            where // <-- NEW: Import where
+            where, // <-- NEW: Import where
+            deleteField // <-- NEW: Import deleteField
         } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         // NEW: Import Firebase Storage
         import {
@@ -83,6 +84,9 @@
         // --- NEW: Global listeners for real-time data ---
         window.rideRequestsListener = null;
         window.activeAlertsListener = null;
+        // --- NEW: Global var for location updater interval ---
+        window.locationUpdater = null;
+        // --- END NEW ---
 
         // --- FIX: Attach Firestore FUNCTIONS to window ---
         window.fs = {
@@ -96,6 +100,7 @@
             updateDoc,
             onSnapshot, // <-- NEW: Add onSnapshot
             where, // <-- NEW: Add where
+            deleteField, // <-- NEW: Add deleteField
             // NEW: Add storage functions to global fs object
             storage_ref: ref,
             uploadBytes,
@@ -297,16 +302,94 @@
 
                         newOnDutyToggle.addEventListener('change', async () => {
                             const isChecked = newOnDutyToggle.checked;
-                            onDutyStatusText.textContent = isChecked ? 'On Duty' : 'Off Duty';
-                            onDutyStatusText.className = isChecked ? 'on-duty' : 'off-duty';
+                        onDutyStatusText.textContent = isChecked ? 'On Duty' : 'Off Duty';
+                        onDutyStatusText.className = isChecked ? 'on-duty' : 'off-duty';
 
-                            try {
-                                const userDocRef = doc(db, 'artifacts', appId, 'users', window.currentUserId);
-                                await updateDoc(userDocRef, { onDuty: isChecked });
-                                window.currentUserData.onDuty = isChecked; // Update local state
-                                // Use the global showAlert
-                                window.showAlert('Status Updated', `You are now ${isChecked ? 'On Duty' : 'Off Duty'}.`, 'success');
-                            } catch (error) {
+                        try {
+                            const userDocRef = doc(db, 'artifacts', appId, 'users', window.currentUserId);
+                            await updateDoc(userDocRef, { onDuty: isChecked });
+                            window.currentUserData.onDuty = isChecked; // Update local state
+
+                            // --- NEW: Live Location Tracking Logic ---
+                            if (isChecked) {
+                                // Driver is toggling ON
+                                // Start location updater
+                                if (window.locationUpdater) {
+                                    clearInterval(window.locationUpdater); // Clear any old one
+                                }
+                                
+                                // Ask for permission & start
+                                navigator.geolocation.getCurrentPosition((initialPosition) => {
+                                    // Got permission
+                                    window.showAlert('Tracking Started', 'Your location is now being shared with the system.', 'info');
+                                    
+                                    // Function to update location
+                                    const updateLocation = async (position) => {
+                                        if (!window.auth.currentUser || !window.currentUserData.onDuty) {
+                                            clearInterval(window.locationUpdater);
+                                            window.locationUpdater = null;
+                                            return;
+                                        }
+                                        
+                                        const { latitude, longitude } = position.coords;
+                                        const newLocation = { lat: latitude, lng: longitude };
+                                        
+                                        try {
+                                            const userDocRef = doc(db, 'artifacts', appId, 'users', window.currentUserId);
+                                            await updateDoc(userDocRef, {
+                                                currentLocation: newLocation,
+                                                locationLastUpdated: new Date().toISOString()
+                                            });
+                                            // Update local data
+                                            window.currentUserData.currentLocation = newLocation;
+                                        } catch (err) {
+                                            console.warn("Failed to update driver location:", err.message);
+                                        }
+                                    };
+                                    
+                                    // Update immediately
+                                    updateLocation(initialPosition);
+                                    
+                                    // Start interval
+                                    window.locationUpdater = setInterval(() => {
+                                        navigator.geolocation.getCurrentPosition(updateLocation, (err) => {
+                                            console.warn("Could not get location:", err.message);
+                                        }, { enableHighAccuracy: true });
+                                    }, 15000); // Update every 15 seconds
+
+                                }, (err) => {
+                                    // User denied permission or error
+                                    console.error("Geolocation error:", err.message);
+                                    window.showAlert('Location Error', 'Could not get your location. Live tracking is disabled. Please grant location permissions and toggle on-duty again.', 'error');
+                                    // Revert UI on failure
+                                    newOnDutyToggle.checked = false;
+                                    onDutyStatusText.textContent = 'Off Duty';
+                                    onDutyStatusText.className = 'off-duty';
+                                    updateDoc(userDocRef, { onDuty: false });
+                                    window.currentUserData.onDuty = false;
+                                }, { enableHighAccuracy: true });
+
+                            } else {
+                                // Driver is toggling OFF
+                                if (window.locationUpdater) {
+                                    clearInterval(window.locationUpdater);
+                                    window.locationUpdater = null;
+                                }
+                                // Remove location from Firestore
+                                try {
+                                    await updateDoc(userDocRef, {
+                                        currentLocation: deleteField() // <-- Use deleteField
+                                    });
+                                    delete window.currentUserData.currentLocation; // Update local
+                                } catch (err) {
+                                    console.warn("Failed to clear driver location:", err.message);
+                                }
+                            }
+                            // --- END NEW: Live Location Tracking Logic ---
+
+                            // Use the global showAlert
+                            window.showAlert('Status Updated', `You are now ${isChecked ? 'On Duty' : 'Off Duty'}.`, 'success');
+                        } catch (error) {
                                 console.error("Error updating duty status:", error);
                                 // Use the global showAlert
                                 window.showAlert('Update Failed', 'Could not update your status. Please try again.', 'error');
@@ -1891,6 +1974,56 @@
             display: flex;
             opacity: 1;
         }
+
+        /* --- NEW: Fullscreen Map Modal --- */
+        #live-map-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 10002; /* Above even the alert modal */
+            display: none;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        #live-map-modal.active {
+            display: flex;
+            opacity: 1;
+        }
+        #live-map-container {
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+        #live-map-canvas {
+            width: 100%;
+            height: 100%;
+            background: #eee;
+        }
+        #live-map-close-btn {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: white;
+            color: #333;
+            border: none;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            font-size: 24px;
+            cursor: pointer;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        #live-map-close-btn:hover {
+            background: #f1f1f1;
+        }
+        /* --- END NEW --- */
 
         .profile-modal-content {
             background: #fff;
@@ -4345,6 +4478,9 @@
                 </ul>
             </li>
             <li><a href="Quiz.html">Quiz</a></li>
+            <!-- === NEW: Live Map Link === -->
+            <li><a href="#" id="nav-live-map-link"><i class="fas fa-map-marked-alt"></i> Live Map</a></li>
+            <!-- === END NEW === -->
             <!-- === NEW: Women Shield Link === -->
             <li><a href="Women Shield.html" id="nav-women-shield-link" style="color: var(--accent-color);"><i
                         class="fas fa-shield-alt"></i> Women Shield</a></li>
@@ -4609,6 +4745,11 @@
                         <button id="view-ride-requests-btn" class="profile-btn profile-btn-driver">
                             <i class="fas fa-list-alt"></i> View Ride Requests
                         </button>
+                        <!-- === NEW: View Accepted Bids Button === -->
+                        <button id="view-accepted-bids-btn" class="profile-btn profile-btn-driver" style="background-color: #357a38;">
+                            <i class="fas fa-check-circle"></i> View My Rides
+                        </button>
+                        <!-- === END NEW === -->
                     </div>
                     <!-- Emergency Buttons -->
                     <div id="emergency-actions" class="role-actions" style="display: none;">
@@ -5277,90 +5418,19 @@
         </div>
     </div>
 
-    <!-- 2. Ride Requests Modal (Driver) -->
-    <div id="ride-requests-modal" class="profile-modal-overlay">
+    <!-- === NEW: 7. My Accepted Bids Modal (Driver) === -->
+    <div id="accepted-bids-modal" class="profile-modal-overlay">
         <div class="profile-modal-content">
             <span class="profile-modal-close">&times;</span>
-            <h2><i class="fas fa-list-alt"></i> Ride Requests</h2>
-            <p>Available ride requests from travelers. New requests will appear here.</p>
-            <ul id="ride-requests-list" class="modal-list">
+            <h2><i class="fas fa-check-circle" style="color: var(--driver-color);"></i> My Confirmed Rides</h2>
+            <p>These are ride requests you have successfully bid on and been accepted for.</p>
+            <ul id="accepted-bids-list" class="modal-list">
                 <!-- Populated by JS -->
-                <li>
-                    <p>Loading requests...</p>
-                </li>
+                <li><p>Loading your confirmed rides...</p></li>
             </ul>
         </div>
     </div>
-
-    <!-- === NEW: 5. My Ride Requests Modal (Traveler) === -->
-    <div id="my-requests-modal" class="profile-modal-overlay">
-        <div class="profile-modal-content">
-            <span class="profile-modal-close">&times;</span>
-            <h2><i class="fas fa-gavel"></i> My Active Requests</h2>
-            <p>Here are your active ride requests. Click "View Bids" to see offers from drivers.</p>
-            <ul id="my-requests-list" class="modal-list">
-                <!-- Populated by JS -->
-                <li>
-                    <p>Loading your requests...</p>
-                </li>
-            </ul>
-        </div>
-    </div>
-
-    <!-- === NEW: 6. Place Bid Modal (Driver) === -->
-    <div id="bid-modal" class="profile-modal-overlay">
-        <div class="profile-modal-content" style="max-width: 400px;">
-            <span class="profile-modal-close">&times;</span>
-            <h2><i class="fas fa-tag"></i> Place Your Bid</h2>
-            <form id="place-bid-form" style="margin-top: 20px;">
-                <div class="form-group">
-                    <label for="bid-amount"><i class="fas fa-rupee-sign"></i> Enter Your Bid Amount</label>
-                    <input type="number" id="bid-amount" name="bid-amount" min="1" step="1" placeholder="e.g., 150" required>
-                </div>
-                <div id="place-bid-error" class="modal-form-error"></div>
-                <button type="submit" class="submit-btn driver-btn">Submit Bid</button>
-            </form>
-        </div>
-    </div>
-    <!-- === END NEW MODALS === -->
-
-    <!-- 3. Active Alerts Modal (Emergency) -->
-    <div id="active-alerts-modal" class="profile-modal-overlay">
-        <div class="profile-modal-content">
-            <span class="profile-modal-close">&times;</span>
-            <h2><i class="fas fa-exclamation-triangle"></i> Active Alerts</h2>
-            <p>Real-time alerts reported by community members and drivers.</p>
-            <ul id="active-alerts-list" class="modal-list">
-                <!-- Populated by JS -->
-                <li>
-                    <p>Loading alerts...</p>
-                </li>
-            </ul>
-        </div>
-    </div>
-
-    <!-- 4. Priority Route Modal (Emergency) -->
-    <div id="priority-route-modal" class="profile-modal-overlay">
-        <div class="profile-modal-content">
-            <span class="profile-modal-close">&times;</span>
-            <h2><i class="fas fa-route"></i> Priority Route</h2>
-            <p>Get an AI-optimized route for your emergency vehicle.</p>
-            <form id="priority-route-form" style="margin-top: 20px;">
-                <div class="form-group">
-                    <label for="incident-location"><i class="fas fa-map-marker-alt"></i> From (Your Location):</label>
-                    <input type="text" id="incident-location" name="incident-location" placeholder="e.g., City Hospital"
-                        required>
-                </div>
-                <div class="form-group">
-                    <label for="incident-destination"><i class="fas fa-map-pin"></i> To (Incident Location):</label>
-                    <input type="text" id="incident-destination" name="incident-destination"
-                        placeholder="Enter incident address" required>
-                </div>
-                <div id="priority-route-error" class="modal-form-error"></div>
-                <button type="submit" class="submit-btn emergency-btn">Generate Route</button>
-            </form>
-        </div>
-    </div>
+    <!-- === END NEW MODAL === -->
 
     <!-- === END NEW ROLE-SPECIFIC MODALS === -->
 
@@ -5407,6 +5477,15 @@
         <canvas id="confetti-canvas"></canvas>
     </div>
 
+    <!-- === NEW: Live Map Modal HTML === -->
+    <div id="live-map-modal">
+        <div id="live-map-container">
+            <button id="live-map-close-btn">&times;</button>
+            <div id="live-map-canvas"></div>
+        </div>
+    </div>
+    <!-- === END NEW === -->
+
     <div id="hero-modal" class="modal-overlay">
         <div class="hero-modal-content">
             <span id="hero-close-btn">&times;</span>
@@ -5429,6 +5508,12 @@
         // --- Google Maps API Key ---
         // API Key provided by the user.
         const GOOGLE_MAPS_API_KEY = "AIzaSyAArI6WKeTuv8LlDzhKEJl4sGc3s4rKRE8";
+        
+        // --- NEW: Google Maps Globals ---
+        let map; // To hold the Google Map instance
+        window.driverMarkers = new Map(); // To store markers by driverId
+        let mapsApiLoaded = false;
+        // --- END NEW ---
 
         document.addEventListener('DOMContentLoaded', () => {
 
@@ -5491,27 +5576,181 @@
                     });
                 }
             });
-            // --- END NEW ---
+            // --- END MODIFICATION ---
 
+            // --- NEW: Live Map Logic ---
+            const navLiveMapLink = document.getElementById('nav-live-map-link');
+            const liveMapModal = document.getElementById('live-map-modal');
+            const liveMapCloseBtn = document.getElementById('live-map-close-btn');
 
-            // --- MODIFIED: Combined Document Click Listener to close all menus ---
-            document.addEventListener('click', (e) => {
-                // Close Profile Menu
-                if (profileMenu && profileMenu.classList.contains('active')) {
-                    if (!profileMenu.contains(e.target) && !profileMenuTrigger.contains(e.target)) {
-                        profileMenu.classList.remove('active');
+            if (navLiveMapLink) {
+                navLiveMapLink.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    if (!window.auth.currentUser || window.auth.currentUser.isAnonymous) {
+                        showAlert('Login Required', 'You must be logged in to view the live map.', 'warning');
+                        return;
                     }
+                    if (liveMapModal) liveMapModal.classList.add('active');
+                    initLiveMap(); // Initialize the map
+                });
+            }
+
+            if (liveMapCloseBtn) {
+                liveMapCloseBtn.addEventListener('click', () => {
+                    if (liveMapModal) liveMapModal.classList.remove('active');
+                    // Stop listening when map is closed?
+                    // For now, we'll let it run in the background if initialized.
+                    // Or, we could destroy the map and listener...
+                    // A simple close is fine for now.
+                });
+            }
+            
+            // Function to load Google Maps script
+            function loadGoogleMapsScript() {
+                return new Promise((resolve, reject) => {
+                    if (mapsApiLoaded && window.google && window.google.maps) {
+                        return resolve(window.google.maps);
+                    }
+                    if (document.getElementById('google-maps-script')) {
+                        // Is loading, just wait...
+                        setTimeout(() => resolve(window.google.maps), 1000);
+                        return;
+                    }
+                    
+                    if (GOOGLE_MAPS_API_KEY === "GOOGLE_MAPS_API_KEY" || !GOOGLE_MAPS_API_KEY) {
+                        const mapCanvas = document.getElementById('live-map-canvas');
+                        if (mapCanvas) mapCanvas.innerHTML = `<div class="map-api-notice" style="padding-top: 50px;"><i class="fas fa-key"></i><strong>Map Preview Unavailable</strong><p>A Google Maps API key is required to show the map.</p></div>`;
+                        return reject(new Error('Google Maps API Key not provided.'));
+                    }
+
+                    const script = document.createElement('script');
+                    script.id = 'google-maps-script';
+                    script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&callback=gMapsCallback`;
+                    script.async = true;
+                    script.defer = true;
+                    
+                    window.gMapsCallback = () => {
+                        console.log("Google Maps script loaded via callback.");
+                        mapsApiLoaded = true;
+                        resolve(window.google.maps);
+                    };
+                    
+                    script.onerror = () => {
+                        reject(new Error('Google Maps script failed to load.'));
+                    };
+
+                    document.head.appendChild(script);
+                });
+            }
+            
+            // Function to initialize the map and start listeners
+            async function initLiveMap() {
+                if (map) return; // Already initialized
+
+                try {
+                    await loadGoogleMapsScript();
+                } catch (error) {
+                    console.error(error.message);
+                    return; // Don't proceed if script fails to load
                 }
 
-                // Close Main Nav Dropdowns
-                document.querySelectorAll('.nav-links > li.dropdown.active').forEach(li => {
-                    // Check if the click was outside this dropdown AND it's not the profile one
-                    if (li.id !== 'nav-user-info' && !li.contains(e.target)) {
-                        li.classList.remove('active');
-                    }
+                if (!window.google || !window.google.maps) {
+                    console.error("Google Maps API not loaded correctly.");
+                    return;
+                }
+
+                const mapCanvas = document.getElementById('live-map-canvas');
+                if (!mapCanvas) return;
+
+                map = new google.maps.Map(mapCanvas, {
+                    center: { lat: 28.4595, lng: 77.0266 }, // Default to Gurugram, India
+                    zoom: 12,
+                    mapId: "DRIVER_MAP_ID" // Optional: For cloud-based map styling
                 });
-            });
-            // --- END MODIFICATION ---
+
+                // Now, attach the Firestore listener
+                if (!window.db || !window.fs) {
+                    console.error("Firestore not ready for map listener.");
+                    return;
+                }
+
+                const driversColRef = window.fs.collection(window.db, 'artifacts', window.appId, 'users');
+                const q = window.fs.query(driversColRef, 
+                    window.fs.where('role', '==', 'driver'),
+                    window.fs.where('onDuty', '==', true)
+                );
+
+                window.fs.onSnapshot(q, (snapshot) => {
+                    snapshot.docChanges().forEach((change) => {
+                        const driverId = change.doc.id;
+                        const driverData = change.doc.data();
+
+                        if (change.type === 'added') {
+                            // Driver came online
+                            if (driverData.currentLocation) {
+                                const newMarker = new google.maps.Marker({
+                                    position: driverData.currentLocation,
+                                    map: map,
+                                    title: driverData.name || 'Driver',
+                                    icon: {
+                                        path: google.maps.SymbolPath.CIRCLE,
+                                        scale: 8,
+                                        fillColor: "#4CAF50",
+                                        fillOpacity: 1,
+                                        strokeColor: "white",
+                                        strokeWeight: 2,
+                                    }
+                                });
+                                window.driverMarkers.set(driverId, newMarker);
+                            }
+                        }
+
+                        if (change.type === 'modified') {
+                            // Driver moved or data changed
+                            const marker = window.driverMarkers.get(driverId);
+                            if (driverData.currentLocation) {
+                                if (marker) {
+                                    // Marker exists, just move it
+                                    marker.setPosition(driverData.currentLocation);
+                                } else {
+                                    // Driver was online but had no location, now they do
+                                    const newMarker = new google.maps.Marker({
+                                        position: driverData.currentLocation,
+                                        map: map,
+                                        title: driverData.name || 'Driver',
+                                        icon: {
+                                            path: google.maps.SymbolPath.CIRCLE,
+                                            scale: 8,
+                                            fillColor: "#4CAF50",
+                                            fillOpacity: 1,
+                                            strokeColor: "white",
+                                            strokeWeight: 2,
+                                        }
+                                    });
+                                    window.driverMarkers.set(driverId, newMarker);
+                                }
+                            } else if (marker) {
+                                // Driver is still on-duty but location was removed (e.g., error)
+                                marker.setMap(null); // Remove from map
+                                window.driverMarkers.delete(driverId);
+                            }
+                        }
+
+                        if (change.type === 'removed') {
+                            // Driver went off-duty
+                            const marker = window.driverMarkers.get(driverId);
+                            if (marker) {
+                                marker.setMap(null); // Remove from map
+                                window.driverMarkers.delete(driverId);
+                            }
+                        }
+                    });
+                }, (error) => {
+                    console.error("Error listening to driver locations:", error);
+                    showAlert('Map Error', 'Could not load live driver data.', 'error');
+                });
+            }
+            // --- END NEW: Live Map Logic ---
 
             // --- NEW: Custom Alert Modal Logic ---
             const alertModal = document.getElementById('custom-alert-modal');
@@ -5724,6 +5963,11 @@
                         const requestId = doc.id;
                         const requestEl = document.createElement('li');
                         requestEl.className = 'modal-list-item my-request-item';
+                        // --- NEW: Add data attributes for later use ---
+                        requestEl.dataset.from = request.from;
+                        requestEl.dataset.to = request.to;
+                        // --- END NEW ---
+
                         // Add custom styles for layout
                         requestEl.style.cssText = 'flex-direction: column; align-items: flex-start;';
 
@@ -5835,8 +6079,8 @@
                             btn.disabled = true;
                             btn.textContent = 'Accepting...';
                             // Disable all other accept buttons for this request
-                            btn.closest('.bids-container').querySelectorAll('.accept-bid-btn').forEach(b => b.disabled = true);
-
+                                btn.closest('.bids-container').querySelectorAll('.accept-bid-btn').forEach(b => b.disabled = true);
+ 
                             try {
                                 const requestDocRef = window.fs.doc(window.db, 'artifacts', window.appId, 'public', 'data', 'ride-requests', requestId);
                                 
@@ -5847,6 +6091,33 @@
                                     confirmedBidAmount: parseFloat(bidAmount),
                                     confirmedVehicle: vehicle
                                 });
+ 
+                                // --- NEW: Add ride to both traveler's and driver's private collections ---
+                                const requestItem = btn.closest('.my-request-item');
+                                const from = requestItem.dataset.from;
+                                const to = requestItem.dataset.to;
+
+                                const rideData = {
+                                    location: `From ${from} to ${to}`,
+                                    date: new Date().toISOString(),
+                                    driver: driverName,
+                                    price: parseFloat(bidAmount),
+                                    type: (vehicle.toLowerCase().includes('motorcycle') ? 'motorcycle' : 'car'),
+                                    status: 'confirmed'
+                                };
+
+                                // 1. Add to traveler's (current user's) ride history
+                                const travelerId = window.currentUserId;
+                                const travelerRidesColRef = window.fs.collection(window.db, 'artifacts', window.appId, 'users', travelerId, 'rides');
+                                await window.fs.addDoc(travelerRidesColRef, rideData);
+
+                                // 2. Add to driver's ride history
+                                const travelerName = window.currentUserData.name || 'A Traveler';
+                                rideData.driver = null; // Unset driver field
+                                rideData.traveler = travelerName; // Add traveler field
+                                const driverRidesColRef = window.fs.collection(window.db, 'artifacts', window.appId, 'users', driverId, 'rides');
+                                await window.fs.addDoc(driverRidesColRef, rideData);
+                                // --- END NEW ---
 
                                 showAlert('Bid Accepted!', `You have confirmed your ride with ${driverName}.`, 'success');
                                 
@@ -6372,7 +6643,79 @@
             const priorityRouteForm = document.getElementById('priority-route-form');
             const priorityRouteError = document.getElementById('priority-route-error');
 
+            // --- NEW: Driver's Accepted Bids Modal ---
+            const viewAcceptedBidsBtn = document.getElementById('view-accepted-bids-btn');
+            const acceptedBidsModal = document.getElementById('accepted-bids-modal');
 
+            // --- NEW: Function to populate driver's confirmed rides ---
+            const populateAcceptedBids = () => {
+                const acceptedListEl = document.getElementById('accepted-bids-list');
+                if (!acceptedListEl) return;
+
+                if (!window.db || !window.fs || !window.currentUserId) {
+                    acceptedListEl.innerHTML = '<li><p>Please log in to see your rides.</p></li>';
+                    return;
+                }
+
+                acceptedListEl.innerHTML = '<li><p>Loading confirmed rides...</p></li>';
+
+                const requestsColRef = window.fs.collection(window.db, 'artifacts', window.appId, 'public', 'data', 'ride-requests');
+                const q = window.fs.query(requestsColRef,
+                    window.fs.where('status', '==', 'confirmed'),
+                    window.fs.where('confirmedDriverId', '==', window.currentUserId)
+                );
+
+                // This is a one-time fetch, not a listener.
+                window.fs.getDocs(q).then(querySnapshot => {
+                    if (querySnapshot.empty) {
+                        acceptedListEl.innerHTML = '<li><p>You have no confirmed rides yet.</p></li>';
+                        return;
+                    }
+
+                    acceptedListEl.innerHTML = ''; // Clear loading
+                    let rides = [];
+                    querySnapshot.forEach(doc => {
+                        rides.push(doc.data());
+                    });
+
+                    // Sort by creation date, newest first
+                    rides.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+                    rides.forEach(ride => {
+                        const rideEl = document.createElement('li');
+                        rideEl.className = 'modal-list-item';
+                        rideEl.innerHTML = `
+                            <div class="icon"><i class="fas fa-check-circle" style="color: var(--driver-color);"></i></div>
+                            <div class="details">
+                                <p><strong>From:</strong> ${ride.from}</p>
+                                <p><strong>To:</strong> ${ride.to}</p>
+                                <span><strong>Traveler:</strong> ${ride.travelerName || 'N/A'}</span>
+                                <span><strong>Your Bid:</strong> ₹${ride.confirmedBidAmount.toFixed(2)}</span>
+                            </div>
+                            <button class="contact-traveler-btn profile-btn" style="background-color: var(--traveler-color); padding: 8px 12px; font-size: 0.9em;">
+                                Contact Traveler
+                            </button>
+                        `;
+                        acceptedListEl.appendChild(rideEl);
+                    });
+
+                    // Add dummy listener for contact button
+                    acceptedListEl.querySelectorAll('.contact-traveler-btn').forEach(btn => {
+                        btn.addEventListener('click', () => {
+                            showAlert('Contact Traveler', 'This would open a chat or show a phone number. (This is a demo)', 'info');
+                        });
+                    });
+
+                }).catch(error => {
+                    console.error("Error fetching accepted bids:", error);
+                    acceptedListEl.innerHTML = `<li><p>Error loading rides: ${error.message}</p></li>`;
+                });
+            };
+            // Make it global for access
+            window.populateAcceptedBids = populateAcceptedBids;
+            // --- END NEW FUNCTION ---
+
+ 
             if (bookRideBtn && bookRideModal) {
                 bookRideBtn.addEventListener('click', () => {
                     bookRideModal.classList.add('active');
@@ -6384,67 +6727,11 @@
                 });
             }
 
-            if (bookRideForm) {
-                bookRideForm.addEventListener('submit', async (e) => {
-                    e.preventDefault();
-                    if (!window.db || !window.fs || !window.currentUserId) {
-                        if (bookRideError) bookRideError.textContent = 'Error: Not logged in.';
-                        return;
-                    }
-
-                    const from = bookRideForm['pickup-location'].value;
-                    const to = bookRideForm['dropoff-location'].value;
-                    const vehicle = bookRideForm['ride-vehicle-type'].value;
-                    const submitBtn = bookRideForm.querySelector('.submit-btn');
-
-                    submitBtn.disabled = true;
-                    submitBtn.textContent = 'Finding...';
-                    if (bookRideError) bookRideError.style.display = 'none';
-
-                    try {
-                        const rideRequestData = {
-                            travelerId: window.currentUserId,
-                            travelerName: window.currentUserData.name || 'A Traveler',
-                            from: from,
-                            to: to,
-                            vehicle: vehicle,
-                            status: 'bidding', // <-- MODIFIED: Was 'pending'
-                            createdAt: new Date().toISOString(),
-                            locality: window.currentUserData.defaultLocation ? window.currentUserData.defaultLocation.split(',').pop().trim().toLowerCase() : 'unknown' // <-- MODIFIED: Add locality for filtering
-                        };
-
-                        // Add to the PUBLIC 'ride-requests' collection
-                        const rideRequestsColRef = window.fs.collection(window.db, 'artifacts', window.appId, 'public', 'data', 'ride-requests');
-                        await window.fs.addDoc(rideRequestsColRef, rideRequestData);
-
-                        showAlert('Request Sent!', `Your ride request from ${from} to ${to} has been sent to nearby drivers.`, 'success'); // <-- MODIFIED: Updated alert
-
-                        if (bookRideModal) bookRideModal.classList.remove('active');
-                        bookRideForm.reset();
-
-                    } catch (error) {
-                        console.error("Error booking ride:", error);
-                        if (bookRideError) {
-                            bookRideError.textContent = `Error: ${error.message}`;
-                            bookRideError.style.display = 'block';
-                        }
-                    } finally {
-                        submitBtn.disabled = false;
-                        submitBtn.textContent = 'Find My Ride';
-                    }
-                });
-            }
-
-            // --- NEW: Add listener for the new "My Ride Requests" button ---
-            const viewMyRequestsBtn = document.getElementById('view-my-requests-btn');
-            const myRequestsModal = document.getElementById('my-requests-modal');
-
-            if (viewMyRequestsBtn && myRequestsModal) {
-                viewMyRequestsBtn.addEventListener('click', () => {
-                    myRequestsModal.classList.add('active');
-                    if (window.populateMyRideRequests) {
-                        window.populateMyRideRequests(); // Call the new function
-                    }
+            // --- NEW: Add click listener for Accepted Bids button ---
+            if (viewAcceptedBidsBtn && acceptedBidsModal) {
+                viewAcceptedBidsBtn.addEventListener('click', () => {
+                    acceptedBidsModal.classList.add('active');
+                    populateAcceptedBids(); // Call new function
                 });
             }
             // --- END NEW ---
