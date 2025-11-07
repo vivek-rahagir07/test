@@ -252,7 +252,7 @@
                 // --- Update Referral Code ---
                 if (referralCodeInput) {
                     if (window.currentUserId) {
-                        referralCodeInput.value = `SR-${window.currentUserId.substring(0, 6).toUpperCase()}`;
+                        referralCodeInput.value = `SR-${window.currentUserId.substring(0, 8).toUpperCase()}`;
                     } else {
                         referralCodeInput.value = 'LOGIN-TO-SEE-CODE';
                     }
@@ -5262,7 +5262,7 @@
                     Money</button>
             </div>
 
-            <div id="add-money-section">
+            <div id="add-money-section" style="display: none;">
                 <div class="form-group">
                     <label for="add-money-amount">Enter Amount (₹)</label>
                     <input type="number" id="add-money-amount" placeholder="e.g., 500">
@@ -5500,89 +5500,89 @@
         </div>
     </div>
 
+    <!-- === NEW: ROLE-SPECIFIC MODALS (Missing HTML) === -->
 
-    <script>
-        // --- FIX: This script block needs to be *outside* the <script type="module"> block ---
-        // --- but *inside* a DOMContentLoaded listener ---
+    <!-- 2. Ride Requests Modal (Driver) -->
+    <div id="ride-requests-modal" class="profile-modal-overlay">
+        <div class="profile-modal-content">
+            <span class="profile-modal-close">&times;</span>
+            <h2><i class="fas fa-list-alt" style="color: var(--driver-color);"></i> Ride Requests</h2>
+            <p>Pending ride requests in your locality. You must be "On Duty" to see requests.</p>
+            <ul id="ride-requests-list" class="modal-list">
+                <!-- Populated by JS -->
+                <li><p>Loading ride requests...</p></li>
+            </ul>
+        </div>
+    </div>
 
-        // --- Google Maps API Key ---
-        // API Key provided by the user.
-        const GOOGLE_MAPS_API_KEY = "AIzaSyAArI6WKeTuv8LlDzhKEJl4sGc3s4rKRE8";
-        
-        // --- NEW: Google Maps Globals ---
-        let map; // To hold the Google Map instance
-        window.driverMarkers = new Map(); // To store markers by driverId
-        let mapsApiLoaded = false;
-        // --- END NEW ---
+    <!-- 3. Place Bid Modal (Driver) -->
+    <div id="bid-modal" class="profile-modal-overlay">
+        <div class="profile-modal-content" style="max-width: 450px;">
+            <span class="profile-modal-close">&times;</span>
+            <h2><i class="fas fa-gavel" style="color: var(--driver-color);"></i> Place Your Bid</h2>
+            <p>Enter the amount you are willing to charge for this ride.</p>
+            <form id="place-bid-form" style="margin-top: 20px;">
+                <div class="form-group">
+                    <label for="bid-amount"><i class="fas fa-rupee-sign"></i> Your Bid Amount (₹)</label>
+                    <input type="number" id="bid-amount" name="bid-amount" placeholder="e.g., 150.00" step="0.01" min="0" required>
+                </div>
+                <div id="place-bid-error" class="modal-form-error"></div>
+                <button type="submit" class="submit-btn driver-btn">Submit Bid</button>
+            </form>
+        </div>
+    </div>
 
-        document.addEventListener('DOMContentLoaded', () => {
+    <!-- 4. My Ride Requests Modal (Traveler) -->
+    <div id="my-requests-modal" class="profile-modal-overlay">
+        <div class="profile-modal-content">
+            <span class="profile-modal-close">&times;</span>
+            <h2><i class="fas fa-gavel" style="color: var(--traveler-color);"></i> View My Bids</h2>
+            <p>These are your active ride requests. Click "View Bids" to see offers from drivers.</p>
+            <ul id="my-requests-list" class="modal-list">
+                <!-- Populated by JS -->
+                <li><p>Loading your active requests...</p></li>
+            </ul>
+        </div>
+    </div>
 
-            // --- FIX 1: This logic was moved from the hero-modal div ---
-            // --- PROFILE MENU CLICK LOGIC (MODIFIED) ---
-            const profileMenuTrigger = document.getElementById('nav-user-info');
-            const profileMenu = document.getElementById('profile-dropdown-menu');
+    <!-- 5. Active Alerts Modal (Emergency) -->
+    <div id="active-alerts-modal" class="profile-modal-overlay">
+        <div class="profile-modal-content">
+            <span class="profile-modal-close">&times;</span>
+            <h2><i class="fas fa-exclamation-triangle" style="color: var(--emergency-color);"></i> Active Alerts</h2>
+            <p>Live SOS alerts from users. You must be "On Duty" to see alerts.</p>
+            <ul id="active-alerts-list" class="modal-list">
+                <!-- Populated by JS -->
+                <li><p>Listening for active alerts...</p></li>
+            </ul>
+        </div>
+    </div>
 
-            if (profileMenuTrigger && profileMenu) {
-                profileMenuTrigger.addEventListener('click', (e) => {
-                    e.stopPropagation(); // Stop click from bubbling to the document
+    <!-- 6. Priority Route Modal (Emergency) -->
+    <div id="priority-route-modal" class="profile-modal-overlay">
+        <div class="profile-modal-content">
+            <span class="profile-modal-close">&times;</span>
+            <h2><i class="fas fa-route" style="color: var(--emergency-color);"></i> Get Priority Route</h2>
+            <p>Generate an AI-optimized route for an emergency.</p>
+            <form id="priority-route-form" style="margin-top: 20px;">
+                <div class="form-group">
+                    <label for="incident-location"><i class="fas fa-map-marker-alt"></i> From (Your Location):</label>
+                    <input type="text" id="incident-location" name="incident-location" placeholder="Enter starting point" required>
+                </div>
+                <div class="form-group">
+                    <label for="incident-destination"><i class="fas fa-map-pin"></i> To (Incident Location):</label>
+                    <input type="text" id="incident-destination" name="incident-destination" placeholder="Enter destination" required>
+                </div>
+                <div id="priority-route-error" class="modal-form-error"></div>
+                <button type="submit" class="submit-btn emergency-btn">Generate Route</button>
+            </form>
+        </div>
+    </div>
 
-                    const wasActive = profileMenu.classList.contains('active');
+    <!-- === END NEW MODALS === -->
 
-                    // --- NEW: Close other dropdowns ---
-                    document.querySelectorAll('.nav-links > li.dropdown.active').forEach(li => {
-                        li.classList.remove('active');
-                    });
-                    // --- END NEW ---
-
-                    if (!wasActive) {
-                        profileMenu.classList.add('active'); // Use add, not toggle
-                    }
-                });
-            }
-            // --- END PROFILE MENU CLICK LOGIC ---
-            // --- END FIX 1 ---
-
-            // --- NEW: Click-to-toggle for main nav dropdowns (Desktop) ---
-            // Get all dropdown toggles EXCEPT the profile one
-            const mainDropdownLinks = document.querySelectorAll('.nav-links > li.dropdown > a');
-
-            mainDropdownLinks.forEach(link => {
-                // Check if it's one of the links that should toggle a menu
-                // And it's NOT the profile trigger
-                const parentLi = link.parentElement;
-                if (parentLi.querySelector('.dropdown-menu') && parentLi.id !== 'nav-user-info') {
-
-                    link.addEventListener('click', (e) => {
-
-                        // Only run this click-toggle logic on desktop
-                        if (window.innerWidth > 992) {
-                            e.preventDefault();
-                            e.stopPropagation(); // Prevent document click listener from firing immediately
-
-                            const wasActive = parentLi.classList.contains('active');
-
-                            // Close all *other* dropdowns (including profile)
-                            document.querySelectorAll('.nav-links > li.dropdown.active').forEach(li => {
-                                li.classList.remove('active');
-                            });
-                            if (profileMenu) profileMenu.classList.remove('active');
-
-                            // If it wasn't already active, open it
-                            if (!wasActive) {
-                                parentLi.classList.add('active');
-                            }
-                        }
-                        // On mobile, the mobile menu logic (further down) will handle it
-                    });
-                }
-            });
-            // --- END MODIFICATION ---
-
-            // --- NEW: Live Map Logic ---
-            const navLiveMapLink = document.getElementById('nav-live-map-link');
-            const liveMapModal = document.getElementById('live-map-modal');
-            const liveMapCloseBtn = document.getElementById('live-map-close-btn');
-
+    <!-- 1. Book a Ride Modal (Traveler) -->
+    <div id="book-ride-modal" class="profile-modal-overlay">
             if (navLiveMapLink) {
                 navLiveMapLink.addEventListener('click', (e) => {
                     e.preventDefault();
@@ -5791,6 +5791,27 @@
             if (alertCloseBtn) alertCloseBtn.addEventListener('click', closeAlertModal);
             // --- END Custom Alert Modal Logic ---
 
+            // --- NEW: General Profile Modal Close Handler ---
+            // Handle all profile-modal-close buttons
+            document.querySelectorAll('.profile-modal-close').forEach(closeBtn => {
+                closeBtn.addEventListener('click', (e) => {
+                    const modal = e.target.closest('.profile-modal-overlay');
+                    if (modal) {
+                        modal.classList.remove('active');
+                    }
+                });
+            });
+
+            // Close modals when clicking outside (on overlay)
+            document.querySelectorAll('.profile-modal-overlay').forEach(modal => {
+                modal.addEventListener('click', (e) => {
+                    // Only close if clicking directly on the overlay, not on the content
+                    if (e.target === modal) {
+                        modal.classList.remove('active');
+                    }
+                });
+            });
+            // --- END General Profile Modal Close Handler ---
 
             // --- NEW: Photo Upload Logic ---
             const galleryBtn = document.getElementById('photo-gallery-btn');
@@ -6637,6 +6658,89 @@
             const bookRideForm = document.getElementById('book-ride-form');
             const bookRideError = document.getElementById('book-ride-error');
 
+            // --- NEW: Add submit handler for book-ride-form ---
+            if (bookRideForm) {
+                bookRideForm.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    
+                    if (!window.db || !window.fs || !window.currentUserId || !window.currentUserData) {
+                        if (bookRideError) {
+                            bookRideError.textContent = 'Error: You are not logged in.';
+                            bookRideError.style.display = 'block';
+                        }
+                        return;
+                    }
+
+                    const from = bookRideForm['pickup-location'].value.trim();
+                    const to = bookRideForm['dropoff-location'].value.trim();
+                    const vehicleType = bookRideForm['ride-vehicle-type'].value;
+
+                    if (!from || !to) {
+                        if (bookRideError) {
+                            bookRideError.textContent = 'Please fill in both pickup and dropoff locations.';
+                            bookRideError.style.display = 'block';
+                        }
+                        return;
+                    }
+
+                    if (bookRideError) bookRideError.style.display = 'none';
+
+                    const submitBtn = bookRideForm.querySelector('.submit-btn');
+                    submitBtn.disabled = true;
+                    submitBtn.textContent = 'Creating Request...';
+
+                    try {
+                        const travelerData = window.currentUserData;
+                        const travelerId = window.currentUserId;
+
+                        const requestData = {
+                            travelerId: travelerId,
+                            travelerName: travelerData.name || 'Traveler',
+                            from: from,
+                            to: to,
+                            vehicle: vehicleType,
+                            status: 'bidding', // Set status to 'bidding' for the bidding system
+                            createdAt: new Date().toISOString()
+                        };
+
+                        const requestsColRef = window.fs.collection(window.db, 'artifacts', window.appId, 'public', 'data', 'ride-requests');
+                        const newRequestRef = window.fs.doc(requestsColRef);
+                        await window.fs.setDoc(newRequestRef, requestData);
+
+                        showAlert('Ride Request Created!', 'Your request has been posted. Drivers can now place bids.', 'success');
+                        if (bookRideModal) bookRideModal.classList.remove('active');
+                        bookRideForm.reset();
+
+                    } catch (error) {
+                        console.error("Error creating ride request:", error);
+                        if (bookRideError) {
+                            bookRideError.textContent = `Error: ${error.message}`;
+                            bookRideError.style.display = 'block';
+                        }
+                    } finally {
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = 'Find My Ride';
+                    }
+                });
+            }
+            // --- END NEW ---
+
+            // --- NEW: Add listener for Traveler's "View Bids" button ---
+            const viewMyRequestsBtn = document.getElementById('view-my-requests-btn');
+            const myRequestsModal = document.getElementById('my-requests-modal');
+
+            if (viewMyRequestsBtn && myRequestsModal) {
+                viewMyRequestsBtn.addEventListener('click', () => {
+                    myRequestsModal.classList.add('active');
+                    if (window.populateMyRideRequests) {
+                        window.populateMyRideRequests(); // Call the function to load bids
+                    } else {
+                        console.error("populateMyRideRequests function not found");
+                    }
+                });
+            }
+            // --- END NEW ---
+
             // --- 4. Emergency: Priority Route ---
             const priorityRouteBtn = document.getElementById('get-priority-route-btn');
             const priorityRouteModal = document.getElementById('priority-route-modal');
@@ -6963,7 +7067,8 @@
                     const bidModal = document.getElementById('bid-modal');
                     const bidError = document.getElementById('place-bid-error');
                     const submitBtn = bidForm.querySelector('.submit-btn');
-                    const bidAmount = parseFloat(bidForm['bid-amount'].value);
+                    const bidAmountInput = document.getElementById('bid-amount') || bidForm['bid-amount'];
+                    const bidAmount = bidAmountInput ? parseFloat(bidAmountInput.value) : NaN;
                     const requestId = bidForm.dataset.requestId;
 
                     if (isNaN(bidAmount) || bidAmount <= 0) {
@@ -7112,6 +7217,277 @@
                     populateAndListenForActiveAlerts(); // Call the function
                 });
             }
+
+            // --- NEW: Add handler for data-modal-target links ---
+            document.querySelectorAll('[data-modal-target]').forEach(link => {
+                link.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const modalId = link.getAttribute('data-modal-target');
+                    const modal = document.getElementById(modalId);
+                    if (modal) {
+                        modal.classList.add('active');
+                        
+                        // Special handling for specific modals
+                        if (modalId === 'rides-modal' && window.populateMyRides) {
+                            window.populateMyRides();
+                        } else if (modalId === 'refer-modal' && referralCodeInput) {
+                            // Update referral code if user is logged in
+                            if (window.currentUserId) {
+                                const code = `SR-${window.currentUserId.substring(0, 8).toUpperCase()}`;
+                                referralCodeInput.value = code;
+                            }
+                        }
+                    }
+                });
+            });
+            // --- END NEW ---
+
+            // --- NEW: Payment Modal Add Money Functionality ---
+            const showAddMoneyBtn = document.getElementById('show-add-money-btn');
+            const addMoneySection = document.getElementById('add-money-section');
+            const confirmAddMoneyBtn = document.getElementById('confirm-add-money-btn');
+            const addMoneyAmountInput = document.getElementById('add-money-amount');
+            const walletBalance = document.querySelector('#payment-modal .wallet-balance h3');
+
+            if (showAddMoneyBtn && addMoneySection) {
+                showAddMoneyBtn.addEventListener('click', () => {
+                    addMoneySection.style.display = addMoneySection.style.display === 'none' ? 'block' : 'block';
+                    if (addMoneyAmountInput) addMoneyAmountInput.focus();
+                });
+            }
+
+            if (confirmAddMoneyBtn && addMoneyAmountInput) {
+                confirmAddMoneyBtn.addEventListener('click', () => {
+                    const amount = parseFloat(addMoneyAmountInput.value);
+                    if (isNaN(amount) || amount <= 0) {
+                        showAlert('Invalid Amount', 'Please enter a valid amount greater than 0.', 'error');
+                        return;
+                    }
+
+                    confirmAddMoneyBtn.disabled = true;
+                    confirmAddMoneyBtn.textContent = 'Processing...';
+
+                    // Simulate payment processing
+                    setTimeout(() => {
+                        if (walletBalance) {
+                            const currentBalance = parseFloat(walletBalance.textContent.replace('₹', '').replace(',', '')) || 0;
+                            const newBalance = currentBalance + amount;
+                            walletBalance.textContent = `₹${newBalance.toFixed(2)}`;
+                        }
+                        showAlert('Payment Successful', `₹${amount.toFixed(2)} has been added to your wallet.`, 'success');
+                        addMoneySection.style.display = 'none';
+                        addMoneyAmountInput.value = '';
+                        confirmAddMoneyBtn.disabled = false;
+                        confirmAddMoneyBtn.textContent = 'Proceed to Pay';
+                    }, 1500);
+                });
+            }
+            // --- END NEW ---
+
+            // --- NEW: Certificate Print and PDF Functionality ---
+            if (certPrintBtn) {
+                certPrintBtn.addEventListener('click', () => {
+                    window.print();
+                });
+            }
+
+            if (certPdfBtn) {
+                certPdfBtn.addEventListener('click', () => {
+                    showAlert('PDF Download', 'PDF download functionality would be implemented here. (This is a demo)', 'info');
+                    // In a real implementation, you would use a library like jsPDF or html2pdf
+                });
+            }
+            // --- END NEW ---
+
+            // --- NEW: My Rides Modal Population ---
+            const populateMyRides = async () => {
+                const ridesListEl = document.querySelector('#rides-modal .ride-history-list');
+                if (!ridesListEl) return;
+
+                if (!window.db || !window.fs || !window.currentUserId) {
+                    ridesListEl.innerHTML = '<li><p>Please log in to see your rides.</p></li>';
+                    return;
+                }
+
+                ridesListEl.innerHTML = '<li><p>Loading ride history...</p></li>';
+
+                try {
+                    const requestsColRef = window.fs.collection(window.db, 'artifacts', window.appId, 'public', 'data', 'ride-requests');
+                    const q = window.fs.query(requestsColRef,
+                        window.fs.where('status', '==', 'confirmed'),
+                        window.fs.where('travelerId', '==', window.currentUserId)
+                    );
+
+                    const querySnapshot = await window.fs.getDocs(q);
+
+                    if (querySnapshot.empty) {
+                        ridesListEl.innerHTML = '<li><p>You have no completed rides yet.</p></li>';
+                        return;
+                    }
+
+                    ridesListEl.innerHTML = '';
+                    let rides = [];
+                    querySnapshot.forEach(doc => {
+                        const ride = doc.data();
+                        rides.push({ ...ride, id: doc.id });
+                    });
+
+                    // Sort by creation date, newest first
+                    rides.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+                    rides.forEach(ride => {
+                        const rideEl = document.createElement('li');
+                        rideEl.className = 'ride-item';
+                        const rideDate = new Date(ride.createdAt).toLocaleDateString('en-IN');
+                        rideEl.innerHTML = `
+                            <div class="icon"><i class="fas fa-check-circle" style="color: var(--traveler-color);"></i></div>
+                            <div class="ride-details">
+                                <p><strong>From:</strong> ${ride.from}</p>
+                                <p><strong>To:</strong> ${ride.to}</p>
+                                <span><strong>Driver:</strong> ${ride.confirmedDriverName || 'N/A'}</span>
+                                <span><strong>Date:</strong> ${rideDate}</span>
+                            </div>
+                            <div class="ride-price">₹${ride.confirmedBidAmount ? ride.confirmedBidAmount.toFixed(2) : '0.00'}</div>
+                        `;
+                        ridesListEl.appendChild(rideEl);
+                    });
+
+                } catch (error) {
+                    console.error("Error fetching rides:", error);
+                    ridesListEl.innerHTML = `<li><p>Error loading rides: ${error.message}</p></li>`;
+                }
+            };
+            window.populateMyRides = populateMyRides;
+            // --- END NEW ---
+
+            // --- NEW: Rating Modal Star Rating and Submit Functionality ---
+            const starRatingContainer = document.querySelector('.star-rating-container');
+            const submitReviewBtn = document.getElementById('submit-review-btn');
+            const reviewComment = document.getElementById('review-comment');
+            const ratingContent = document.getElementById('rating-content');
+            const ratingSuccessMessage = document.getElementById('rating-success-message');
+
+            if (starRatingContainer) {
+                const stars = starRatingContainer.querySelectorAll('.star');
+                let selectedRating = 0;
+
+                stars.forEach(star => {
+                    star.addEventListener('click', () => {
+                        selectedRating = parseInt(star.dataset.value);
+                        starRatingContainer.dataset.rating = selectedRating;
+
+                        // Update star display
+                        stars.forEach((s, index) => {
+                            if (index < selectedRating) {
+                                s.classList.add('selected');
+                            } else {
+                                s.classList.remove('selected');
+                            }
+                        });
+                    });
+
+                    star.addEventListener('mouseenter', () => {
+                        const hoverValue = parseInt(star.dataset.value);
+                        stars.forEach((s, index) => {
+                            if (index < hoverValue) {
+                                s.style.color = 'var(--accent-color)';
+                            } else {
+                                s.style.color = '#ccc';
+                            }
+                        });
+                    });
+                });
+
+                starRatingContainer.addEventListener('mouseleave', () => {
+                    stars.forEach((s, index) => {
+                        if (index < selectedRating) {
+                            s.style.color = 'var(--accent-color)';
+                        } else {
+                            s.style.color = '#ccc';
+                        }
+                    });
+                });
+            }
+
+            if (submitReviewBtn) {
+                submitReviewBtn.addEventListener('click', async () => {
+                    const rating = starRatingContainer ? parseInt(starRatingContainer.dataset.rating) : 0;
+                    const comment = reviewComment ? reviewComment.value.trim() : '';
+
+                    if (rating === 0) {
+                        showAlert('Rating Required', 'Please select a rating by clicking on the stars.', 'warning');
+                        return;
+                    }
+
+                    if (!window.db || !window.fs || !window.currentUserId) {
+                        showAlert('Error', 'You must be logged in to submit a review.', 'error');
+                        return;
+                    }
+
+                    submitReviewBtn.disabled = true;
+                    submitReviewBtn.textContent = 'Submitting...';
+
+                    try {
+                        const reviewData = {
+                            userId: window.currentUserId,
+                            userName: window.currentUserData.name || 'User',
+                            rating: rating,
+                            comment: comment,
+                            timestamp: new Date().toISOString()
+                        };
+
+                        const reviewsColRef = window.fs.collection(window.db, 'artifacts', window.appId, 'public', 'data', 'reviews');
+                        await window.fs.addDoc(reviewsColRef, reviewData);
+
+                        // Show success message
+                        if (ratingContent) ratingContent.style.display = 'none';
+                        if (ratingSuccessMessage) ratingSuccessMessage.style.display = 'block';
+
+                        // Reset form after 2 seconds
+                        setTimeout(() => {
+                            if (ratingContent) ratingContent.style.display = 'block';
+                            if (ratingSuccessMessage) ratingSuccessMessage.style.display = 'none';
+                            if (starRatingContainer) {
+                                starRatingContainer.dataset.rating = '0';
+                                starRatingContainer.querySelectorAll('.star').forEach(s => s.classList.remove('selected'));
+                            }
+                            if (reviewComment) reviewComment.value = '';
+                            submitReviewBtn.disabled = false;
+                            submitReviewBtn.textContent = 'Submit Review';
+                        }, 2000);
+
+                    } catch (error) {
+                        console.error("Error submitting review:", error);
+                        showAlert('Submission Failed', `Could not submit review: ${error.message}`, 'error');
+                        submitReviewBtn.disabled = false;
+                        submitReviewBtn.textContent = 'Submit Review';
+                    }
+                });
+            }
+            // --- END NEW ---
+
+            // --- NEW: Update referral code when modal opens ---
+            if (referralCodeInput && window.currentUserId) {
+                // Update on page load if user is logged in
+                const updateReferralCode = () => {
+                    if (window.currentUserId) {
+                        const code = `SR-${window.currentUserId.substring(0, 8).toUpperCase()}`;
+                        referralCodeInput.value = code;
+                    }
+                };
+                updateReferralCode();
+            }
+            // --- END NEW ---
+
+            // --- NEW: Populate rewards when rewards modal opens ---
+            document.querySelectorAll('[data-modal-target="rewards-modal"]').forEach(link => {
+                link.addEventListener('click', () => {
+                    if (window.populateRewards) {
+                        setTimeout(() => window.populateRewards(), 100);
+                    }
+                });
+            });
+            // --- END NEW ---
 
 
         }); // --- End of DOMContentLoaded ---
